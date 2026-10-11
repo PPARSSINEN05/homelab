@@ -19,11 +19,11 @@ The purpose of this homelab is to establish a reliable, independent compute node
 | Device | Model / Role | Operating System / Firmware | Connectivity & Configuration |
 | :--- | :--- | :--- | :--- |
 | **Central Host Server** | Lenovo G50 | Ubuntu Server 26.04.1 LTS (Kernel 7.0 OEM) | Intel Core i3 / HD 5500, 12GB DDR3 RAM, 256GB SSD (root `/`), 800GB HDD (`/mnt/data`). Direct RJ45 LAN. |
-| **Edge Gateway** | GL.iNet GL-MT300N-V2 ("Mango") | OpenWrt-based Firmware | WISP / Client repeater to shared WAN; isolated private subnet `192.168.8.0/24`. |
+| **Edge Gateway** | GL.iNet GL-MT300N-V2 ("Mango") | OpenWrt-based Firmware | WISP / Client repeater to shared WAN; isolated private subnet `${PRIVATE_SUBNET}`. |
 | **Smart Control Hub** | Apple iPad (2017) | iOS 16 | Dedicated dashboard controller running Mushroom UI and smart alarm interface. |
 | **Mobile Endpoint** | OnePlus (CPH2465) | Android / Home Assistant Companion | Remote administration and NFC automation trigger node. |
 | **Display Sink** | External Portable Monitor | Native Display | Connected via HDMI to host (1920x1080 @ 60Hz), driven by X11 / LightDM. |
-| **Audio & Voice Node** | Google Nest Mini | Google Cast Firmware | Connected via local Wi-Fi (`192.168.8.104`), audio/TTS sink for notifications and alarm logic. |
+| **Audio & Voice Node** | Google Nest Mini | Google Cast Firmware | Connected via local Wi-Fi (`${NEST_MINI_IP}`), audio/TTS sink for notifications and alarm logic. |
 | **Smart Lighting** | 4x TP-Link Tapo L530, 2x Tapo L900 | TP-Link Smart Home Firmware | Connected via 2.4 GHz local Wi-Fi, polled directly by Home Assistant. |
 
 ---
@@ -44,7 +44,7 @@ flowchart TD
     end
 
     subgraph S2["Sprint 2: Network Sovereignty & Display Kiosk"]
-        C1["Deploy GL.iNet Mango in WISP repeater mode"] --> C2["Migrate server to static Ethernet (192.168.8.243)"]
+        C1["Deploy GL.iNet Mango in WISP repeater mode"] --> C2["Migrate server to static Ethernet (${SERVER_IP})"]
         C2 --> C3["Migrate IoT & mobile nodes to private Wi-Fi"]
         C3 --> C4["X11 / LightDM GUI & 1080p display configuration"]
         C4 --> C5["Docker-to-Host HTTP RPC bridge (tv-listener on :9999)"]
@@ -63,18 +63,18 @@ flowchart TD
                                    │
                                    ▼ (WISP Client Mode)
                 [ GL.iNet GL-MT300N-V2 Mango Router ]
-                     (Subnet: 192.168.8.0/24)
+                     (Subnet: ${PRIVATE_SUBNET})
                                    │
         ┌──────────────────────────┴──────────────────────────┐
         ▼ (Ethernet Cable - enp2s0)                           ▼ (2.4 GHz Wi-Fi)
 ┌──────────────────────────────────────┐          ┌──────────────────────────┐
-│ Lenovo G50 (192.168.8.243)           │          │ Connected Clients & IoT  │
+│ Lenovo G50 (${SERVER_IP})           │          │ Connected Clients & IoT  │
 │  - Storage: SSD (OS) + HDD (/mnt/data│          │  - iPad (Dashboard)      │
-│  - Ingress: Tailscale (100.80.194.90)│          │  - OnePlus Phone         │
+│  - Ingress: Tailscale (${TAILSCALE_NODE_IP})│          │  - OnePlus Phone         │
 │                                      │          │  - 4x Tapo L530 Bulbs    │
 │  Docker Containers:                  │          │  - 2x Tapo L900 Strips   │
 │  ├── Home Assistant (Host network)   │          │  - Google Nest Mini      │
-│  └── Jellyfin (Port 8096)            │          │    (192.168.8.104)       │
+│  └── Jellyfin (Port 8096)            │          │    (${NEST_MINI_IP})       │
 │                                      │          └──────────────────────────┘
 │  Host Services & Runtime:            │
 │  ├── LightDM / X11 (:0 on HDMI1)     │
@@ -98,8 +98,8 @@ flowchart TD
   - `HDD (800 GB)`: Formatted as `ext4` and persistently mounted at `/mnt/data` via UUID in `/etc/fstab` for Jellyfin library storage (`/mnt/data/medias`).
 
 ### 2. Network Perimeter & Mesh Tunneling
-- **Edge Routing (OpenWrt):** The GL.iNet Mango establishes a WISP client connection to the unmanaged upstream gateway, serving an isolated `192.168.8.0/24` subnet. The host server binds statically via physical Ethernet (`enp2s0`) to `192.168.8.243`.
-- **Mesh Tunneling (Tailscale):** WireGuard-based overlay network binds the host at `100.80.194.90`, enabling secure remote access across the OnePlus phone and iPad without upstream NAT traversal or port forwarding.
+- **Edge Routing (OpenWrt):** The GL.iNet Mango establishes a WISP client connection to the unmanaged upstream gateway, serving an isolated `${PRIVATE_SUBNET}` subnet. The host server binds statically via physical Ethernet (`enp2s0`) to `${SERVER_IP}`.
+- **Mesh Tunneling (Tailscale):** WireGuard-based overlay network binds the host at `${TAILSCALE_NODE_IP}`, enabling secure remote access across the OnePlus phone and iPad without upstream NAT traversal or port forwarding.
 
 ### 3. Containerized Service Stack
 Containers are declared in `~/serveur/docker-compose.yml`:
@@ -209,7 +209,7 @@ case "$1" in
     sleep 1
 
     # Instruct Google Nest Mini to play the local stream
-    catt -d "$DEVICE_NAME" cast "http://192.168.8.243:8554/stream.mp3" &
+    catt -d "$DEVICE_NAME" cast "http://${SERVER_IP}:8554/stream.mp3" &
     ;;
 
   stop)
@@ -242,8 +242,8 @@ Exposed to Home Assistant automations via `shell_command`:
 
 ```yaml
 shell_command:
-  ouvrir_tv_arte: "curl -s http://192.168.8.243:9999/ouvrir"
-  fermer_tv_arte: "curl -s http://192.168.8.243:9999/fermer"
+  ouvrir_tv_arte: "curl -s http://${SERVER_IP}:9999/ouvrir"
+  fermer_tv_arte: "curl -s http://${SERVER_IP}:9999/fermer"
 ```
 
 ---
@@ -265,13 +265,13 @@ docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 ### Kiosk & Stream Testing
 ```bash
 # Test manual trigger of TV kiosk
-curl http://192.168.8.243:9999/ouvrir
+curl http://${SERVER_IP}:9999/ouvrir
 
 # Inspect local audio stream socket
 ss -tulpn | grep 8554
 
 # Test manual shutdown of TV kiosk
-curl http://192.168.8.243:9999/fermer
+curl http://${SERVER_IP}:9999/fermer
 ```
 
 ---
